@@ -1,0 +1,10 @@
+# 秘密情報。これが GitHub に上がると、Webhook と APIキーが世界中に公開される。
+.streamlit/secrets.toml
+.env
+
+# ローカル設定
+.claude/
+
+__pycache__/
+*.pyc
+.DS_Store
