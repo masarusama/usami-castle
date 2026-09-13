@@ -259,6 +259,10 @@ def generate_reply(done_text, stuck_text):
                     # 長さはプロンプト側で指示する。ここを絞ると文が途中で切れる。
                     max_output_tokens=800,
                     temperature=0.9,
+                    # gemini-2.5-flashは無指定だと「思考」に大半のトークンを
+                    # 使ってしまい、本文が途中で切れる（2026-09-13に実測で確認）。
+                    # このアプリの返信は短文なので思考は不要、オフにする。
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
                 ),
             )
             text = (response.text or "").strip()
