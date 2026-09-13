@@ -349,7 +349,7 @@ if st.session_state.mode == "gate":
 
 else:
     st.markdown(
-        "<h1 style='text-align:center; color:#E0E0E0;'>今の自分を超えに行こうぜ。</h1>",
+        "<h1 style='text-align:center; color:#E0E0E0;'>困るな悩むな。試せ戻れ、手を動かそう。気持ちいい静かな集中タイム</h1>",
         unsafe_allow_html=True,
     )
     st.caption(f"ようこそ、{st.session_state.student_name} さん")
@@ -380,18 +380,18 @@ else:
     # --- 報告フォーム ---------------------------------------------
     elif st.session_state.mode == "report":
         st.success("✨ おつかれさま。カメラ配信を停止したよ。")
-        st.markdown("### 📝 今日の頑張りを教えてくれ")
+        st.markdown("### 📝 やってみたこと　具体的に")
 
         done_text = st.text_area(
-            "今日やったこと",
-            placeholder="例：数Ⅱの対数の計算問題を20問",
+            "何の教材のどこを/解いた/丸付けした/青コメした/説明した/ばっちり化した/覚えた?",
+            placeholder="例：MJ数p13-p15を解いて丸付けまで",
             height=100,
         )
 
         # ここが v2 の心臓部。この1項目があるかどうかで、返信の中身が別物になる。
         stuck_text = st.text_area(
-            "一番てこずったところ（ここが一番大事）",
-            placeholder="例：底の変換公式を、いつ使えばいいのかわからない",
+            "きづいたこと/てこずったこと/発見/まなび、次はどうしたい?",
+            placeholder="例：30分あれば英単語とりあえず50個は短期記憶できそう",
             height=100,
         )
 
