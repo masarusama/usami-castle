@@ -23,9 +23,11 @@ st.set_page_config(page_title="宇佐美城 自習室", layout="centered")
 # 設定
 # ------------------------------------------------------------------
 
-# 上位モデルを使う。自習室の呼び出し回数なら費用は誤差の範囲。
+# 2026-09-13時点: gemini-2.5-pro は新規ユーザー向けに廃止済み（404）。
+# gemini-3.1-pro-preview は無料枠のクォータ超過（429）で使えなかったため、
+# 無料枠で安定して動く gemini-2.5-flash を採用。
 # もっと新しいモデルが出ていたら、この1行を差し替えるだけでいい。
-MODEL_NAME = "gemini-2.5-pro"
+MODEL_NAME = "gemini-2.5-flash"
 
 # カメラが繋がらない生徒が出るのを防ぐための設定
 RTC_CONFIG = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
