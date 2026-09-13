@@ -1,9 +1,9 @@
 """
-宇佐美城 オンライン自習室  v2
+ユークンラボ城 オンライン自習室  v2
 
 v1（Gemini版）からの変更点は4つ。
   1. 報告フォームに「一番てこずったところ」を追加（必須）
-  2. ウサミサンの仕事を「褒める」から「質問を1つ返す」に変更
+  2. アシスタントの仕事を「褒める」から「質問を1つ返す」に変更
   3. APIキー・Webhook URL・生徒IDを st.secrets へ退避（コードに秘密を書かない）
   4. 返信が生徒に表示されずログアウトしていたバグを修正
 
@@ -17,7 +17,7 @@ from google import genai
 from google.genai import types
 from streamlit_webrtc import webrtc_streamer
 
-st.set_page_config(page_title="宇佐美城 自習室", layout="centered")
+st.set_page_config(page_title="ユークンラボ城 自習室", layout="centered")
 
 # ------------------------------------------------------------------
 # 設定
@@ -63,14 +63,14 @@ def get_client():
 
 
 # ==================================================================
-# ここがウサミサンの脳みそ
+# ここがアシスタントの脳みそ
 # ==================================================================
 
 BASE_INSTRUCTION = """
-あなたは「ウサミサン」。個別指導塾ユークンラボで、宇佐美先生の助手をしているAIです。
+あなたは「アシスタント」。個別指導塾ユークンラボで、先生の助手をしているAIです。
 
 【いちばん大事な立ち位置】
-・あなたは宇佐美先生本人ではありません。先生が読むまでの間、報告を受け取る係です。
+・あなたは先生本人ではありません。先生が読むまでの間、報告を受け取る係です。
 ・先生本人になりきろうとしないこと。ただし報告は必ず先生に届くので、それは伝えます。
 
 【キャラクター】
@@ -221,7 +221,7 @@ def build_system_instruction():
     if EXAMPLES:
         parts.append(
             "\n【返信の実例】\n"
-            "以下は、宇佐美先生ならこう返す、という実例です。\n"
+            "以下は、先生ならこう返す、という実例です。\n"
             "この温度感・長さ・質問の投げ方を真似してください。\n"
         )
         for i, ex in enumerate(EXAMPLES, 1):
@@ -326,7 +326,7 @@ for key, value in defaults.items():
 # --- ログイン画面 -------------------------------------------------
 if st.session_state.mode == "gate":
     st.markdown(
-        "<h2 style='text-align:center;'>宇佐美城・聖域ログイン</h2>",
+        "<h2 style='text-align:center;'>ユークンラボ城・聖域ログイン</h2>",
         unsafe_allow_html=True,
     )
 
@@ -357,7 +357,7 @@ else:
 
     # --- ロビー ---------------------------------------------------
     if st.session_state.mode == "lobby":
-        if st.button("🏰 宇佐美城に入城する", use_container_width=True):
+        if st.button("🏰 ユークンラボ城に入城する", use_container_width=True):
             st.session_state.mode = "castle"
             st.session_state.entered_at = time.time()
             st.session_state.bot_reply = ""
@@ -370,7 +370,7 @@ else:
     elif st.session_state.mode == "castle":
         st.info("🔥 いま、自分自身と格闘中。")
         st.write("🎥 自分の手元を城内に配信中...")
-        webrtc_streamer(key="usami-camera", rtc_configuration=RTC_CONFIG)
+        webrtc_streamer(key="yukung-camera", rtc_configuration=RTC_CONFIG)
 
         st.write("---")
         if st.button("🚪 格闘を終了する（成果報告へ）", use_container_width=True):
@@ -406,7 +406,7 @@ else:
                     "一番あやしかったところを書いてみて。"
                 )
             else:
-                with st.spinner("ウサミサンが報告を読んでいます..."):
+                with st.spinner("アシスタントが報告を読んでいます..."):
                     reply, error = generate_reply(done_text, stuck_text)
 
                 duration = ""
@@ -425,7 +425,7 @@ else:
                     "",
                     f"**てこずったところ**\n{stuck_text}",
                     "",
-                    f"🤖 ウサミサンの返信\n{reply}",
+                    f"🤖 アシスタントの返信\n{reply}",
                 ]
                 if error:
                     lines.append(f"\n⚠️ AI呼び出しエラー: {error}")
@@ -439,7 +439,7 @@ else:
     # --- 返信を見せる（v1ではここで即ログアウトしてしまい、生徒は返信を読めなかった）
     elif st.session_state.mode == "reply":
         st.balloons()
-        st.markdown("### 📩 ウサミサンから")
+        st.markdown("### 📩 アシスタントから")
         st.info(st.session_state.bot_reply)
 
         if st.session_state.last_duration:
