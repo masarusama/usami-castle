@@ -1,5 +1,5 @@
 """
-ユークンラボ城 オンライン自習室  v2
+ユークンラボ オンライン自習室  v2
 
 v1（Gemini版）からの変更点は4つ。
   1. 報告フォームに「一番てこずったところ」を追加（必須）
@@ -17,7 +17,7 @@ from google import genai
 from google.genai import types
 from streamlit_webrtc import webrtc_streamer
 
-st.set_page_config(page_title="ユークンラボ城 自習室", layout="centered")
+st.set_page_config(page_title="ユークンラボ 自習室", layout="centered")
 
 # ------------------------------------------------------------------
 # 設定
@@ -308,7 +308,7 @@ def format_duration(seconds):
 # ------------------------------------------------------------------
 # 画面
 #
-# mode: gate（ログイン前） / lobby / castle（格闘中） / report / reply
+# mode: gate（ログイン前） / lobby / castle（集中中。値は内部名のまま） / report / reply
 # ------------------------------------------------------------------
 
 defaults = {
@@ -326,7 +326,7 @@ for key, value in defaults.items():
 # --- ログイン画面 -------------------------------------------------
 if st.session_state.mode == "gate":
     st.markdown(
-        "<h2 style='text-align:center;'>ユークンラボ城・聖域ログイン</h2>",
+        "<h2 style='text-align:center;'>ユークンラボ自習室 ログイン</h2>",
         unsafe_allow_html=True,
     )
 
@@ -339,7 +339,7 @@ if st.session_state.mode == "gate":
 
     user_id = st.text_input("塾生シークレットIDを入力してください", type="password")
 
-    if st.button("城門をくぐる", use_container_width=True):
+    if st.button("入室する", use_container_width=True):
         if user_id in students:
             st.session_state.student_name = students[user_id]
             st.session_state.mode = "lobby"
@@ -357,30 +357,30 @@ else:
 
     # --- ロビー ---------------------------------------------------
     if st.session_state.mode == "lobby":
-        if st.button("🏰 ユークンラボ城に入城する", use_container_width=True):
+        if st.button("🚪 入室する", use_container_width=True):
             st.session_state.mode = "castle"
             st.session_state.entered_at = time.time()
             st.session_state.bot_reply = ""
             send_to_discord(
-                f"🏰 **{st.session_state.student_name}** さんが入城しました。格闘開始。"
+                f"🚪 **{st.session_state.student_name}** さんが入室しました。集中開始。"
             )
             st.rerun()
 
-    # --- 格闘中 ---------------------------------------------------
+    # --- 集中中 -----------------------------------------------
     elif st.session_state.mode == "castle":
-        st.info("🔥 いま、自分自身と格闘中。")
-        st.write("🎥 自分の手元を城内に配信中...")
+        st.info("🔥 いま、集中中。")
+        st.write("🎥 自分の手元を配信中...")
         webrtc_streamer(key="yukung-camera", rtc_configuration=RTC_CONFIG)
 
         st.write("---")
-        if st.button("🚪 格闘を終了する（成果報告へ）", use_container_width=True):
+        if st.button("🚪 集中を終了する（成果報告へ）", use_container_width=True):
             st.session_state.mode = "report"
             st.rerun()
 
     # --- 報告フォーム ---------------------------------------------
     elif st.session_state.mode == "report":
         st.success("✨ おつかれさま。カメラ配信を停止したよ。")
-        st.markdown("### 📝 今日の格闘の跡を教えてくれ")
+        st.markdown("### 📝 今日の頑張りを教えてくれ")
 
         done_text = st.text_area(
             "今日やったこと",
@@ -396,7 +396,7 @@ else:
         )
 
         st.write("---")
-        if st.button("🚀 報告して退城する", use_container_width=True):
+        if st.button("🚀 報告して退室する", use_container_width=True):
             if not done_text.strip():
                 st.warning("「今日やったこと」が空っぽだよ。一言でもいいから書いてね。")
             elif not stuck_text.strip():
@@ -448,13 +448,13 @@ else:
         st.write("---")
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("もう一度入城する", use_container_width=True):
+            if st.button("もう一度入室する", use_container_width=True):
                 st.session_state.mode = "lobby"
                 st.rerun()
         with col2:
-            if st.button("完全に退城する", use_container_width=True):
+            if st.button("完全に退室する", use_container_width=True):
                 send_to_discord(
-                    f"👋 **{st.session_state.student_name}** さんが退城しました。"
+                    f"👋 **{st.session_state.student_name}** さんが退室しました。"
                 )
                 for key, value in defaults.items():
                     st.session_state[key] = value
