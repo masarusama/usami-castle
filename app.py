@@ -10,6 +10,7 @@ v1（Gemini版）からの変更点は4つ。
 編集するのは基本 EXAMPLES（下の方）だけでいい。
 """
 
+import datetime
 import time
 import requests
 import streamlit as st
@@ -306,6 +307,41 @@ def format_duration(seconds):
 
 
 # ------------------------------------------------------------------
+# 「今日ここに来た生徒」— 相互刺激のための一言表示。
+#
+# 設計方針: 「来た」は見せるが「来ていない」は見せない非対称設計。
+# サボりの監視にならないよう、リアルタイムのオンライン判定はしない
+# （ハートビート・タイムアウト処理が要る重い実装は避ける）。
+# 退室しても消さず、その日の実績として積み上げるだけ。
+# Streamlit Cloud の再起動で消えるが、実害のない軽い情報なので許容する。
+# ------------------------------------------------------------------
+
+@st.cache_resource
+def _today_visitors_store():
+    return {"date": "", "names": []}
+
+
+def record_visit(student_name):
+    """入室した生徒を「今日ここに来た」リストへ記録する（同日重複は増やさない）。"""
+    store = _today_visitors_store()
+    today = datetime.date.today().isoformat()
+    if store["date"] != today:
+        store["date"] = today
+        store["names"] = []
+    if student_name not in store["names"]:
+        store["names"].append(student_name)
+
+
+def get_today_visitors(exclude=None):
+    """今日すでに入室した生徒名のリスト（exclude を除く）。日付が変われば空になる。"""
+    store = _today_visitors_store()
+    today = datetime.date.today().isoformat()
+    if store["date"] != today:
+        return []
+    return [name for name in store["names"] if name != exclude]
+
+
+# ------------------------------------------------------------------
 # 画面
 #
 # mode: gate（ログイン前） / lobby / castle（集中中。値は内部名のまま） / report / reply
@@ -357,7 +393,13 @@ else:
 
     # --- ロビー ---------------------------------------------------
     if st.session_state.mode == "lobby":
+        others = get_today_visitors(exclude=st.session_state.student_name)
+        if others:
+            names = "、".join(f"{name}さん" for name in others)
+            st.caption(f"✨ 今日はここまでに {names} も来てるよ")
+
         if st.button("🚪 入室する", use_container_width=True):
+            record_visit(st.session_state.student_name)
             st.session_state.mode = "castle"
             st.session_state.entered_at = time.time()
             st.session_state.bot_reply = ""
