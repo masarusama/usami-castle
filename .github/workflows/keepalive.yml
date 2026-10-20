@@ -1,0 +1,39 @@
+# Streamlit Community Cloud のスリープ対策（詳しくは scripts/keepalive.py）。
+# 6時間ごとに本物のブラウザでアプリを開き、寝ていたら起こす。
+# 失敗するとジョブが赤くなり、リポジトリ所有者にメールが飛ぶ（＝アプリが落ちている通知にもなる）。
+#
+# 注意: 公開リポジトリは、60日間コミットが無いと GitHub が定期実行を自動で止める。
+#       止まったら Actions タブで「Enable workflow」を押すか、何かコミットすれば再開する。
+name: keepalive
+
+on:
+  schedule:
+    # UTC。毎時0分は混むのでずらす。スリープは12時間なので、6時間おきなら1回失敗しても間に合う。
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Open the app (wake it if asleep)
+        run: python scripts/keepalive.py
