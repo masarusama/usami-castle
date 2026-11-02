@@ -103,7 +103,7 @@ def google_login_configured():
 
 
 def load_room_members():
-    """{ID(小文字): {"name": 表示名, "since": 有効になる日, "password": パスワード}} 。"""
+    """{ID(小文字): {"name", "since": 有効になる日, "until": 最後に使える日, "password"}} 。"""
     try:
         raw = st.secrets["room_members"]
     except Exception:
@@ -115,21 +115,31 @@ def load_room_members():
             since = datetime.date.fromisoformat(str(info.get("since", "1970-01-01")))
         except ValueError:
             since = datetime.date.max  # 日付が壊れていたら「入れない」側に倒す
+        # until = 最後に使える日（体験用など）。省略すると期限なし。読めない値は「終わった」側に倒す
+        until = datetime.date.max
+        if "until" in info:
+            try:
+                until = datetime.date.fromisoformat(str(info["until"]))
+            except ValueError:
+                until = datetime.date.min
         members[str(email).strip().lower()] = {
             "name": str(info.get("name", "")).strip(),
             "since": since,
+            "until": until,
             "password": str(info.get("password", "")),
         }
     return members
 
 
 def check_room_access(email):
-    """('ok', 表示名) / ('not_started', 有効になる日) / ('not_listed', None)。"""
+    """('ok', 表示名) / ('not_started', 有効になる日) / ('expired', 最後に使えた日) / ('not_listed', None)。"""
     member = load_room_members().get((email or "").strip().lower())
     if member is None:
         return "not_listed", None
     if member["since"] > today_jst():
         return "not_started", member["since"]
+    if member["until"] < today_jst():
+        return "expired", member["until"]
     return "ok", member["name"] or "生徒"
 
 
@@ -140,7 +150,7 @@ def _login_fail_store():
 
 
 def check_password_login(user_id, password):
-    """('ok', 表示名) / ('bad', None) / ('locked', 残り秒) / ('not_started', 有効になる日)。
+    """('ok', 表示名) / ('bad', None) / ('locked', 残り秒) / ('not_started', 有効になる日) / ('expired', 最後に使えた日)。
 
     IDが無い場合とパスワードが違う場合は、同じ 'bad' を返す（どのIDがあるかを悟らせない）。
     """
@@ -170,6 +180,8 @@ def check_password_login(user_id, password):
     store.pop(key, None)
     if member["since"] > today_jst():
         return "not_started", member["since"]
+    if member["until"] < today_jst():
+        return "expired", member["until"]
     return "ok", member["name"] or "生徒"
 
 
@@ -583,6 +595,8 @@ def render_gate_google():
 
     if status == "not_started":
         st.warning(f"このアカウントは {value.month}月{value.day}日 から使えるよ。もう少し待っててね。")
+    elif status == "expired":
+        st.warning(f"このアカウントは {value.month}月{value.day}日 で終わったよ。続けたいときは、先生に聞いてね。")
     else:
         st.error("このアカウントは、まだ自習室に登録されていないみたい。先生に聞いてみてね。")
         # 先生が気づけるように、1セッションに1回だけDiscordへ知らせる
@@ -608,6 +622,8 @@ def render_gate_password():
             st.rerun()
         elif status == "not_started":
             st.warning(f"このIDは {value.month}月{value.day}日 から使えるよ。もう少し待っててね。")
+        elif status == "expired":
+            st.warning(f"このIDは {value.month}月{value.day}日 で終わったよ。続けたいときは、先生に聞いてね。")
         elif status == "locked":
             st.error(f"間違いが続いたので、あと{max(1, value // 60 + 1)}分ほど待ってからやり直してね。")
         else:
