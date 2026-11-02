@@ -580,6 +580,14 @@ else:
             )
             st.rerun()
 
+        # 共用PCで次の人が入れてしまわないように、入室せずに終わる出口も置く
+        if st.button("ログアウト", use_container_width=True):
+            for key, value in defaults.items():
+                st.session_state[key] = value
+            if google_login_configured() and st.user.is_logged_in:
+                st.logout()
+            st.rerun()
+
     # --- 集中中 -----------------------------------------------
     elif st.session_state.mode == "castle":
         st.info("🔥 いま、集中中。")
