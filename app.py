@@ -13,6 +13,7 @@ v1（Gemini版）からの変更点は4つ。
 import datetime
 import hmac
 import time
+from pathlib import Path
 import requests
 import streamlit as st
 from google import genai
@@ -471,6 +472,30 @@ for key, value in defaults.items():
         st.session_state[key] = value
 
 
+# ------------------------------------------------------------------
+# 使い方・ヘルプ（help/simple.md と help/detail.md を、そのまま画面に出す）
+# 文書の直し先は、この2つのファイルだけ。
+# ------------------------------------------------------------------
+
+HELP_DIR = Path(__file__).parent / "help"
+
+
+def _read_help(name):
+    try:
+        return (HELP_DIR / name).read_text(encoding="utf-8")
+    except Exception:
+        return "（ヘルプを読み込めませんでした。先生に聞いてください。）"
+
+
+def render_help():
+    with st.expander("❓ 使い方・ヘルプ"):
+        tab_simple, tab_detail = st.tabs(["かんたん版", "くわしく版"])
+        with tab_simple:
+            st.markdown(_read_help("simple.md"))
+        with tab_detail:
+            st.markdown(_read_help("detail.md"))
+
+
 # --- ログイン画面 -------------------------------------------------
 
 def render_gate_google():
@@ -554,6 +579,7 @@ if st.session_state.mode == "gate":
         render_gate_google()
     else:
         render_gate_id()
+    render_help()
 
 else:
     st.markdown(
@@ -587,6 +613,8 @@ else:
             if google_login_configured() and st.user.is_logged_in:
                 st.logout()
             st.rerun()
+
+        render_help()
 
     # --- 集中中 -----------------------------------------------
     elif st.session_state.mode == "castle":
