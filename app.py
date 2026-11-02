@@ -12,6 +12,8 @@ v1（Gemini版）からの変更点は4つ。
 
 import datetime
 import hmac
+import io
+import threading
 import time
 from pathlib import Path
 import requests
@@ -36,6 +38,12 @@ MODEL_NAME = "gemini-2.5-flash"
 RTC_CONFIG = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 
 DISCORD_LIMIT = 1900  # Discord の1メッセージ上限（2000）に余裕を持たせる
+
+# 手元カメラの静止画を、先生の Discord に送る間隔。入室して SNAPSHOT_FIRST_DELAY_SEC 秒後に1枚、
+# あとは SNAPSHOT_INTERVAL_SEC ごとに1枚。映像そのものは送らず、保存もしない（静止画だけが Discord に残る）。
+# 間隔を変えるときは、help/ の文書の「10分」も直す。
+SNAPSHOT_INTERVAL_SEC = 10 * 60
+SNAPSHOT_FIRST_DELAY_SEC = 3
 
 
 def get_secret(key, default=None):
@@ -412,6 +420,64 @@ def send_to_discord(message):
         return False
 
 
+# ------------------------------------------------------------------
+# 手元カメラの静止画を Discord に送る
+#
+# streamlit-webrtc のフレーム受け取り（別スレッドで毎フレーム呼ばれる）の中で、
+# 「そろそろ送る時間か」だけを見て、時間が来たときだけ JPEG にして送る。
+# 送信は別スレッドに逃がし、映像の流れを止めない。
+# カメラが許可されなければフレームが来ないので、何も送られない。
+# ------------------------------------------------------------------
+
+def _post_snapshot(webhook_url, jpeg_bytes, caption):
+    try:
+        requests.post(
+            webhook_url,
+            data={"content": caption[:DISCORD_LIMIT]},
+            files={"file": ("snapshot.jpg", jpeg_bytes, "image/jpeg")},
+            timeout=20,
+        )
+    except Exception:
+        pass  # Discord が落ちていても自習室は止めない
+
+
+def new_snapshot_state():
+    return {"first_frame_at": None, "last_sent_at": None, "entered_at": time.time()}
+
+
+def make_snapshot_callback(state, student_name, webhook_url):
+    """webrtc_streamer の video_frame_callback に渡す関数を作る。"""
+
+    def callback(frame):
+        try:
+            now = time.time()
+            if state["first_frame_at"] is None:
+                state["first_frame_at"] = now
+            last = state["last_sent_at"]
+            if last is None:
+                due = now - state["first_frame_at"] >= SNAPSHOT_FIRST_DELAY_SEC
+            else:
+                due = now - last >= SNAPSHOT_INTERVAL_SEC
+            if due and webhook_url:
+                image = frame.to_image()
+                image.thumbnail((480, 480))
+                buf = io.BytesIO()
+                image.convert("RGB").save(buf, "JPEG", quality=70)
+                state["last_sent_at"] = now
+                minutes = int((now - state["entered_at"]) // 60)
+                caption = f"📷 **{student_name}** さんの手元（入室から{minutes}分）"
+                threading.Thread(
+                    target=_post_snapshot,
+                    args=(webhook_url, buf.getvalue(), caption),
+                    daemon=True,
+                ).start()
+        except Exception:
+            pass  # 静止画の失敗で、映像や勉強を止めない
+        return frame
+
+    return callback
+
+
 def format_duration(seconds):
     minutes = int(seconds // 60)
     if minutes < 60:
@@ -600,6 +666,7 @@ else:
             record_visit(st.session_state.student_name)
             st.session_state.mode = "castle"
             st.session_state.entered_at = time.time()
+            st.session_state.snap_state = new_snapshot_state()
             st.session_state.bot_reply = ""
             send_to_discord(
                 f"🚪 **{st.session_state.student_name}** さんが入室しました。集中開始。"
@@ -619,8 +686,22 @@ else:
     # --- 集中中 -----------------------------------------------
     elif st.session_state.mode == "castle":
         st.info("🔥 いま、集中中。")
-        st.write("🎥 自分の手元を配信中...")
-        webrtc_streamer(key="yukung-camera", rtc_configuration=RTC_CONFIG)
+        st.write(
+            "🎥 手元を映しています。先生の連絡用の場所に、"
+            f"{SNAPSHOT_INTERVAL_SEC // 60}分おきに静止画が届きます。"
+        )
+        if "snap_state" not in st.session_state:
+            st.session_state.snap_state = new_snapshot_state()
+        webrtc_streamer(
+            key="yukung-camera",
+            rtc_configuration=RTC_CONFIG,
+            media_stream_constraints={"video": True, "audio": False},
+            video_frame_callback=make_snapshot_callback(
+                st.session_state.snap_state,
+                st.session_state.student_name,
+                get_secret("DISCORD_WEBHOOK_URL"),
+            ),
+        )
 
         st.write("---")
         if st.button("🚪 集中を終了する（成果報告へ）", use_container_width=True):
