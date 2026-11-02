@@ -52,6 +52,62 @@ def load_students():
         return {}
 
 
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+
+def today_jst():
+    """日本時間の今日。サーバーはUTCで動くので、date.today() だと日付が朝9時に変わってしまう。"""
+    return datetime.datetime.now(JST).date()
+
+
+# ------------------------------------------------------------------
+# Google ログイン方式（2026-11 〜）
+#
+# Secrets に [auth] と [room_members] の両方があるときだけ有効になる。
+# どちらかが無ければ、従来の「塾生シークレットID」方式のまま動く
+# （＝コードを先に本番へ出しても、Secrets を貼るまで挙動は変わらない）。
+#
+# 許可リスト（[room_members."メール"]）は子どものメールアドレスなので、
+# 公開リポジトリには絶対に入れない。Secrets にだけ置く。
+# ------------------------------------------------------------------
+
+def google_login_configured():
+    try:
+        return "auth" in st.secrets and "room_members" in st.secrets
+    except Exception:
+        return False
+
+
+def load_room_members():
+    """{メール(小文字): {"name": 表示名, "since": 有効になる日}} 。"""
+    try:
+        raw = st.secrets["room_members"]
+    except Exception:
+        return {}
+    members = {}
+    for email, info in raw.items():
+        info = dict(info)
+        try:
+            since = datetime.date.fromisoformat(str(info.get("since", "1970-01-01")))
+        except ValueError:
+            since = datetime.date.max  # 日付が壊れていたら「入れない」側に倒す
+        members[str(email).strip().lower()] = {
+            "name": str(info.get("name", "")).strip(),
+            "since": since,
+        }
+    return members
+
+
+def check_room_access(email):
+    """('ok', 表示名) / ('not_started', 有効になる日) / ('not_listed', None)。"""
+    member = load_room_members().get((email or "").strip().lower())
+    if member is None:
+        return "not_listed", None
+    if member["since"] > today_jst():
+        return "not_started", member["since"]
+    return "ok", member["name"] or "生徒"
+
+
 @st.cache_resource
 def get_client():
     api_key = get_secret("GEMINI_API_KEY")
@@ -324,7 +380,7 @@ def _today_visitors_store():
 def record_visit(student_name):
     """入室した生徒を「今日ここに来た」リストへ記録する（同日重複は増やさない）。"""
     store = _today_visitors_store()
-    today = datetime.date.today().isoformat()
+    today = today_jst().isoformat()
     if store["date"] != today:
         store["date"] = today
         store["names"] = []
@@ -335,7 +391,7 @@ def record_visit(student_name):
 def get_today_visitors(exclude=None):
     """今日すでに入室した生徒名のリスト（exclude を除く）。日付が変われば空になる。"""
     store = _today_visitors_store()
-    today = datetime.date.today().isoformat()
+    today = today_jst().isoformat()
     if store["date"] != today:
         return []
     return [name for name in store["names"] if name != exclude]
@@ -360,12 +416,40 @@ for key, value in defaults.items():
 
 
 # --- ログイン画面 -------------------------------------------------
-if st.session_state.mode == "gate":
-    st.markdown(
-        "<h2 style='text-align:center;'>ユークンラボ自習室 ログイン</h2>",
-        unsafe_allow_html=True,
-    )
 
+def render_gate_google():
+    """Google アカウントでログイン → 許可リストにあるメールだけ入室できる。"""
+    if not st.user.is_logged_in:
+        st.write("先生が登録したGoogleアカウントで、ログインしてね。")
+        if st.button("Googleでログイン", use_container_width=True):
+            st.login()
+        return
+
+    email = st.user.get("email") or ""
+    verified = st.user.get("email_verified")
+    status, value = check_room_access(email) if verified is not False else ("not_listed", None)
+
+    if status == "ok":
+        st.session_state.student_name = value
+        st.session_state.mode = "lobby"
+        st.rerun()
+
+    if status == "not_started":
+        st.warning(f"このアカウントは {value.month}月{value.day}日 から使えるよ。もう少し待っててね。")
+    else:
+        st.error("このアカウントは、まだ自習室に登録されていないみたい。先生に聞いてみてね。")
+        # 先生が気づけるように、1セッションに1回だけDiscordへ知らせる
+        if not st.session_state.get("denied_notified"):
+            st.session_state.denied_notified = True
+            send_to_discord(f"⚠️ 自習室に登録されていないアカウントがログインしました: {email or '(メール不明)'}")
+
+    st.caption(f"ログイン中のアカウント: {email}")
+    if st.button("別のアカウントでやり直す", use_container_width=True):
+        st.logout()
+
+
+def render_gate_id():
+    """従来の「塾生シークレットID」方式。Googleログインが未設定のときだけ使う。"""
     students = load_students()
     if not students:
         st.error(
@@ -382,6 +466,17 @@ if st.session_state.mode == "gate":
             st.rerun()
         else:
             st.error("IDが違うみたい。もう一度確認してみてね。")
+
+
+if st.session_state.mode == "gate":
+    st.markdown(
+        "<h2 style='text-align:center;'>ユークンラボ自習室 ログイン</h2>",
+        unsafe_allow_html=True,
+    )
+    if google_login_configured():
+        render_gate_google()
+    else:
+        render_gate_id()
 
 else:
     st.markdown(
@@ -500,4 +595,7 @@ else:
                 )
                 for key, value in defaults.items():
                     st.session_state[key] = value
+                # Googleログインのままだと、次の人が（共用PCで）そのまま入れてしまう
+                if google_login_configured() and st.user.is_logged_in:
+                    st.logout()
                 st.rerun()

@@ -1,4 +1,8 @@
-streamlit
+streamlit>=1.42
+# Authlib 1.6.6 以降は Streamlit の st.login と衝突する（ログイン開始時に
+# "'NoneType' object does not support item assignment" で落ちる。2026-11-02 に 1.6.5/1.6.6 の間で実測）。
+# Streamlit 側が直るまで 1.6.5 までに固定する。
+Authlib>=1.3.2,<1.6.6
 google-genai
 streamlit-webrtc
 requests
