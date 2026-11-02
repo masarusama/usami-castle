@@ -11,6 +11,7 @@ v1（Gemini版）からの変更点は4つ。
 """
 
 import datetime
+import hmac
 import time
 import requests
 import streamlit as st
@@ -61,17 +62,31 @@ def today_jst():
 
 
 # ------------------------------------------------------------------
-# Google ログイン方式（2026-11 〜）
+# 入室の方式（2026-11 〜）。Secrets の中身で自動的に切り替わる。
 #
-# Secrets に [auth] と [room_members] の両方があるときだけ有効になる。
-# どちらかが無ければ、従来の「塾生シークレットID」方式のまま動く
-# （＝コードを先に本番へ出しても、Secrets を貼るまで挙動は変わらない）。
+#   1. ID＋パスワード方式 … [room_members."ID"] に password がある（本番はこれ）
+#   2. Google ログイン方式 … [auth] と [room_members] があり、password は無い
+#   3. 従来の塾生シークレットID方式 … 上のどれも無い
 #
-# 許可リスト（[room_members."メール"]）は子どものメールアドレスなので、
+# 先に本番へコードを出しても、Secrets を変えるまで挙動は変わらない。
+# 許可リスト（[room_members]）には子どものID・パスワードが入るので、
 # 公開リポジトリには絶対に入れない。Secrets にだけ置く。
 # ------------------------------------------------------------------
 
+LOGIN_MAX_FAILS = 5          # 同じIDで続けて失敗できる回数
+LOGIN_LOCK_SECONDS = 10 * 60  # 超えたら、この秒数は入れない
+
+
+def password_login_configured():
+    try:
+        return any("password" in dict(info) for info in st.secrets["room_members"].values())
+    except Exception:
+        return False
+
+
 def google_login_configured():
+    if password_login_configured():
+        return False
     try:
         return "auth" in st.secrets and "room_members" in st.secrets
     except Exception:
@@ -79,7 +94,7 @@ def google_login_configured():
 
 
 def load_room_members():
-    """{メール(小文字): {"name": 表示名, "since": 有効になる日}} 。"""
+    """{ID(小文字): {"name": 表示名, "since": 有効になる日, "password": パスワード}} 。"""
     try:
         raw = st.secrets["room_members"]
     except Exception:
@@ -94,6 +109,7 @@ def load_room_members():
         members[str(email).strip().lower()] = {
             "name": str(info.get("name", "")).strip(),
             "since": since,
+            "password": str(info.get("password", "")),
         }
     return members
 
@@ -103,6 +119,46 @@ def check_room_access(email):
     member = load_room_members().get((email or "").strip().lower())
     if member is None:
         return "not_listed", None
+    if member["since"] > today_jst():
+        return "not_started", member["since"]
+    return "ok", member["name"] or "生徒"
+
+
+@st.cache_resource
+def _login_fail_store():
+    """{ID: {"count": 失敗回数, "until": 解除される時刻}}。再起動で消えてよい。"""
+    return {}
+
+
+def check_password_login(user_id, password):
+    """('ok', 表示名) / ('bad', None) / ('locked', 残り秒) / ('not_started', 有効になる日)。
+
+    IDが無い場合とパスワードが違う場合は、同じ 'bad' を返す（どのIDがあるかを悟らせない）。
+    """
+    key = (user_id or "").strip().lower()[:80]
+    store = _login_fail_store()
+    entry = store.get(key, {"count": 0, "until": 0})
+    now = time.time()
+    if entry["until"] > now:
+        return "locked", int(entry["until"] - now)
+
+    member = load_room_members().get(key)
+    expected = member["password"] if member else ""
+    # IDが無い場合も同じ比較をして、応答時間で見分けられないようにする
+    matched = hmac.compare_digest((password or "").encode(), (expected or "x").encode())
+    if member is None or not expected or not matched:
+        entry["count"] = entry["count"] + 1 if entry["until"] <= now else 1
+        if entry["count"] >= LOGIN_MAX_FAILS:
+            entry["until"] = now + LOGIN_LOCK_SECONDS
+            entry["count"] = 0
+            send_to_discord(
+                f"⚠️ 自習室のログインに{LOGIN_MAX_FAILS}回続けて失敗したため、"
+                f"ID「{key[:40] or '(空)'}」を{LOGIN_LOCK_SECONDS // 60}分ロックしました。"
+            )
+        store[key] = entry
+        return "bad", None
+
+    store.pop(key, None)
     if member["since"] > today_jst():
         return "not_started", member["since"]
     return "ok", member["name"] or "生徒"
@@ -448,6 +504,25 @@ def render_gate_google():
         st.logout()
 
 
+def render_gate_password():
+    """ID＋パスワードでログイン → [room_members] にあるIDだけ入室できる。"""
+    user_id = st.text_input("ID")
+    password = st.text_input("パスワード", type="password")
+
+    if st.button("入室する", use_container_width=True):
+        status, value = check_password_login(user_id, password)
+        if status == "ok":
+            st.session_state.student_name = value
+            st.session_state.mode = "lobby"
+            st.rerun()
+        elif status == "not_started":
+            st.warning(f"このIDは {value.month}月{value.day}日 から使えるよ。もう少し待っててね。")
+        elif status == "locked":
+            st.error(f"間違いが続いたので、あと{max(1, value // 60 + 1)}分ほど待ってからやり直してね。")
+        else:
+            st.error("IDかパスワードが違うみたい。もう一度確認してみてね。")
+
+
 def render_gate_id():
     """従来の「塾生シークレットID」方式。Googleログインが未設定のときだけ使う。"""
     students = load_students()
@@ -473,7 +548,9 @@ if st.session_state.mode == "gate":
         "<h2 style='text-align:center;'>ユークンラボ自習室 ログイン</h2>",
         unsafe_allow_html=True,
     )
-    if google_login_configured():
+    if password_login_configured():
+        render_gate_password()
+    elif google_login_configured():
         render_gate_google()
     else:
         render_gate_id()
